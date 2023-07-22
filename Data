@@ -1,0 +1,1433 @@
+function onOpen() 
+{ 
+  
+  // Try New Google Sheets method
+  try{
+    var ui = SpreadsheetApp.getUi();
+    ui.createMenu('Alfa-One')
+    .addItem('Download Confirmed Runs', 'ShowRunDialog')
+    .addItem('Download Unread Timesheets', 'getGmailEmails')
+    .addItem('Check Must Rest', 'checkMustRest')
+    .addItem('Copy to Driver Report', 'CollectDriverRuns')
+    .addItem('Copy to Joint Report','CopyTimesheetsToJointReport')
+    .addItem('Copy AM to ChangeOver', 'changeOverAM')
+    .addItem('PM ChangeOver','changeOverPM')
+    .addToUi(); 
+  } 
+  
+  // Log the error
+  catch (e){Logger.log(e)}
+  
+  // Use old Google Spreadsheet method
+  finally{
+//    var items = [
+//      {name: 'Download Confirmed Runs', functionName: 'ShowRunDialog'},
+//      {name: 'Backup Weekly Report', functionName: 'backupWeeklyReport'}//,
+//      {name: 'Show sidebar', functionName: 'showSidebar'}, 
+//      {name: 'Archive Sheet1', functionName: 'archiveSheet1'}
+//   ];
+//    var ss1 = SpreadsheetApp;
+//      ss1.addMenu('Alfa-One', items);
+  }
+}
+
+function ShowRunDialog() {
+  var ui1 = SpreadsheetApp.getUi(); // Same variations.
+
+  var result = ui1.alert(
+     'Please confirm',
+     'Are you sure you want to continue?',
+      ui1.ButtonSet.YES_NO);
+
+  // Process the user's response.
+  if (result == ui1.Button.YES) {
+    // User clicked "Yes".
+    ui1.alert('Confirmation received. Started copying Confirmed Runs.');
+    CopyBufferData();
+  } else {
+    // User clicked "No" or X in the title bar.
+   ui1.alert('Canncelled');
+  }
+}
+
+function changeOverPM(){
+  try {
+    var app = SpreadsheetApp;
+    var bufferSheet = app.getActiveSpreadsheet().getSheetByName("Buffer Sheet").activate();
+    var rowNum  = bufferSheet.getLastRow();
+    for (var rNum=2; rNum<=rowNum; rNum++) {
+      var Rego = bufferSheet.getRange(rNum, 13).getValue();
+      var DriverName = bufferSheet.getRange(rNum,15).getValue();
+      var StartTime = bufferSheet.getRange(rNum, 7).getValue();
+      var EndTime = bufferSheet.getRange(rNum, 8).getValue();
+      var TotalHours = bufferSheet.getRange(rNum, 12).getValue();
+      var Dock = bufferSheet.getRange(rNum, 11).getValue();
+      var DriverID = bufferSheet.getRange(rNum, 14).getValue();
+      CheckChangeOver (Rego, DriverName, DriverID, StartTime, EndTime, TotalHours, Dock)
+    }
+  }
+  catch (e)  {
+    Logger.log(e);
+  }
+  finally {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  }
+}
+
+function CheckChangeOver(rego, driverName, driverID, sDateTime, eDateTime, totalHours, dock){
+  try {
+    var app = SpreadsheetApp;
+    var coSheet = app.getActiveSpreadsheet().getSheetByName("Change Over").activate();
+    var lRow = coSheet.getLastRow();
+    var regoFound = false;
+    
+    for (let rNum=2; rNum<=lRow; rNum++) {
+      let regoAM = coSheet.getRange(rNum, 7).getValue();
+      if (regoAM === rego) {
+        coSheet.getRange(rNum, 8).setValue(sDateTime);
+        coSheet.getRange(rNum, 9).setValue(dock);
+        coSheet.getRange(rNum, 10).setValue(driverID);
+        coSheet.getRange(rNum, 11).setValue(driverName);
+        coSheet.getRange(rNum, 12).setValue(eDateTime);
+        coSheet.getRange(rNum, 13).setValue(totalHours);
+        regoFound = true;
+      }
+    }
+
+    if (!regoFound) {
+      coSheet.getRange(lRow+1, 7).setValue(rego);
+      coSheet.getRange(lRow+1, 8).setValue(sDateTime);
+      coSheet.getRange(lRow+1, 9).setValue(dock);
+      coSheet.getRange(lRow+1, 10).setValue(driverID);
+      coSheet.getRange(lRow+1, 11).setValue(driverName);
+      coSheet.getRange(lRow+1, 12).setValue(eDateTime);
+      coSheet.getRange(lRow+1, 13).setValue(totalHours);
+      regoFound = true;
+    }
+    CheckFatigueHours()
+  }
+  catch (e) {
+    Logger.log(e);
+  }
+  finally {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  }
+}
+
+function CheckFatigueHours(){
+  try {
+    var app = SpreadsheetApp;
+    var coSheet = app.getActiveSpreadsheet().getSheetByName("Change Over").activate();
+    var lRow = coSheet.getLastRow();
+    for (let i=2; i<=lRow; i++) {
+      let driverIDAM = coSheet.getRange(i, 2).getValue();
+      let amHours = coSheet.getRange(i,6).getValue().getHours();
+      let amMinutes = coSheet.getRange(i,6).getValue().getMinutes();
+      for (let j=2; j<=lRow; j++) {
+        let driverIDPM = coSheet.getRange(j, 10).getValue();
+        if (driverIDAM === driverIDPM) {
+          let pmHours = coSheet.getRange(j,13).getValue().getHours();
+          let pmMinutes = coSheet.getRange(j,13).getValue().getMinutes();
+          let totalHours = amHours + pmHours;
+          let totalMinutes = amMinutes+pmMinutes;
+          if (totalMinutes>=60)
+          {
+            totalHours = totalHours + 1;
+            totalMinutes = totalMinutes-60;
+          }
+          let strHours = totalHours.toString();
+          if (strHours.length==1) strHours = '0'+strHours;
+
+          let strMinutes = totalMinutes.toString();
+          if (strMinutes.length==1) strMinutes = '0'+strMinutes;
+          //=IF(MINUTE(F5)+MINUTE(M5)>=60, CONCATENATE(TEXT(HOUR(F5)+HOUR(M5)+1, 0), ":", TEXT(MINUTE(F5)+MINUTE(M5)-60, 0)),  CONCATENATE(TEXT(HOUR(F5)+HOUR(M5), 0), ":", TEXT(MINUTE(F5)+MINUTE(M5), 0)))
+          
+          coSheet.getRange(j, 14).setValue(strHours+':'+strMinutes);
+          }
+        }
+      }
+    }
+  catch (e) {
+    Logger.log(e);
+  }
+  finally {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  }
+}
+
+function changeOverAM(){
+  try  {
+    CleanChangeOver();
+    var app = SpreadsheetApp;
+    var bufferSheet = app.getActiveSpreadsheet().getSheetByName("Buffer Sheet").activate();
+    var rowNum  = bufferSheet.getLastRow();
+    for (var rNum=2; rNum<=rowNum; rNum++) {
+
+      var Rego = bufferSheet.getRange(rNum, 13).getValue();
+      var DriverName = bufferSheet.getRange(rNum,15).getValue();
+      var StartTime = bufferSheet.getRange(rNum, 7).getValue();
+      var EndTime = bufferSheet.getRange(rNum, 8).getValue();
+      var TotalHours = bufferSheet.getRange(rNum, 12).getValue();
+      var Dock = bufferSheet.getRange(rNum, 11).getValue();
+      var DriverID = bufferSheet.getRange(rNum, 14).getValue();
+      WriteToChangeOver (Rego, DriverName, DriverID, StartTime, EndTime, TotalHours, Dock)
+    }
+
+  }
+  catch (e)  {
+    Logger.log(e);
+  }
+  finally  {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  }
+}
+
+function CleanChangeOver()
+{
+  try {
+    var app = SpreadsheetApp;
+    var changeoversheet = app.getActiveSpreadsheet().getSheetByName("Change Over").activate();
+    var lastRow  = changeoversheet.getLastRow();
+    changeoversheet.getRange(2, 1, lastRow, 14).clearContent();
+    }
+  catch (e) {
+    Logger.log(e);
+  }
+  finally {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  }
+}
+
+function WriteToChangeOver (rego, driverName, driverID, sDate, eDate, totalHours, dock)
+{
+  try {
+    var app = SpreadsheetApp;
+    var changeoversheet = app.getActiveSpreadsheet().getSheetByName("Change Over").activate();
+    var lastRow  = 1+changeoversheet.getLastRow();
+    changeoversheet.getRange(lastRow, 1).setValue(dock);
+    changeoversheet.getRange(lastRow, 2).setValue(driverID);
+    changeoversheet.getRange(lastRow, 3).setValue(driverName);
+    changeoversheet.getRange(lastRow, 4).setValue(sDate);
+    changeoversheet.getRange(lastRow, 5).setValue(eDate);
+    changeoversheet.getRange(lastRow, 6).setValue(totalHours);
+    changeoversheet.getRange(lastRow, 7).setValue(rego);
+    }
+  catch (e) {
+    Logger.log(e);
+  }
+  finally {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  }
+}
+
+function CollectDriverRuns()
+{
+  try  {
+    var app = SpreadsheetApp;
+    var timesheet = app.getActiveSpreadsheet().getSheetByName("Timesheet Report").activate();
+    var lRow  = timesheet.getLastRow();
+    for (var rNum=2; rNum<=lRow; rNum++)
+    {
+      var isOkay = timesheet.getRange(rNum, 20).getValue();
+      var isCounted = timesheet.getRange(rNum, 21).getValue();
+      if (isOkay && isCounted=="")
+      {
+        var DriverName = timesheet.getRange(rNum, 2).getValue();
+        var DriverID = timesheet.getRange(rNum, 3).getValue();
+        var Scannerlogged = timesheet.getRange(rNum, 4).getValue();
+        var ScannerCompleted = timesheet.getRange(rNum, 5).getValue();
+        var Store = timesheet.getRange(rNum, 6).getValue();
+        var Rego = timesheet.getRange(rNum, 7).getValue();
+        var ShiftDate = timesheet.getRange(rNum, 8).getValue();
+        var AMorPM = timesheet.getRange(rNum, 9).getValue();
+        var StartTime = timesheet.getRange(rNum, 10).getValue();
+        var FinishTime = timesheet.getRange(rNum, 11).getValue();	
+        var TotalWorkingTime = timesheet.getRange(rNum, 12).getValue();
+        var RestTaken = timesheet.getRange(rNum, 14).getValue();
+        var Reststart = timesheet.getRange(rNum, 15).getValue();	
+        var Restfinish = timesheet.getRange(rNum, 16).getValue();
+        var MustRest = timesheet.getRange(rNum, 17).getValue();
+        var RestTakenOnTime = timesheet.getRange(rNum, 18).getValue();
+        WriteDriverReport(DriverName, DriverID, Scannerlogged, ScannerCompleted, Store, Rego, ShiftDate, AMorPM, StartTime, FinishTime, TotalWorkingTime, RestTaken, Reststart, Restfinish, MustRest, RestTakenOnTime);
+        timesheet.getRange(rNum, 21).setValue('COUNTED');
+      }
+    }
+  }
+  catch (e)  {
+    Logger.log(e);
+  }
+  finally  {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  }
+}
+
+function WriteDriverReport(DriverName, DriverID , Scannerlogged, ScannerCompleted, Store, Rego, ShiftDate, AMorPM, StartTime, FinishTime, TotalWorkingTime, RestTaken, Reststart, Restfinish, MustRest, RestTakenOnTime)
+{
+  try
+  {     
+    var timeZone = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+    var year = ShiftDate.substring(6,10);
+    var month = ShiftDate.substring(3,5);
+    var day = ShiftDate.substring(0,2);
+    var vshiftDate = new Date(year, month-1, day);
+    var plus6Days = new Date(vshiftDate.getTime()+6*3600000*24);
+    var weekDayNo = Utilities.formatDate(vshiftDate, timeZone, 'u');
+    var sheetName="";
+    switch (DriverID)
+    { 
+      case '1013656':
+      sheetName = '3656-Vinh';
+      break;
+        
+      case '1013953':
+      sheetName = '3953-Khongor';
+      break;
+     
+      case '1012733':
+      sheetName = '2733-Telmuun';
+      break;
+      
+      case "1012344":
+      sheetName = "2344-Tien";
+      break;
+          
+      case "1013236":
+      sheetName = "3236-Duy";
+      break; 
+      
+      case "1013515":
+      sheetName="3515-Xuan Huy";
+      break;
+      
+      case "1012094":	
+      sheetName="2094-Donni";
+      break;
+      
+      case "1013037":	
+      sheetName="3037-Hien";
+      break;
+      
+      case "1014029":	
+      sheetName="4029-Tat";
+      break;
+      
+      case "1012340":	
+      sheetName="2340-Daniel";
+      break;
+      
+      case "1012850":	
+      sheetName="2850-Chris";
+      break;
+      
+      case "1012406":	
+      sheetName="2406-Edison";
+      break;
+      
+      case "1013316":	
+      sheetName="3316-Joni";
+      break;
+      
+      case "1012881":	
+      sheetName="2881-Mark";
+      break;
+      
+      case "1012578":	
+      sheetName="2578-Cyrus";
+      break;
+      
+      case "1013571":	
+      sheetName="3571-Shiliang";
+      break;
+      
+      case "1013516":	
+      sheetName="3516-Richard";
+      break;
+      
+      case "1013916":	
+      sheetName="3916-Minh";
+      break;
+      
+      case "1012854":	
+      sheetName="2854-Matthew";
+      break;
+      
+      case "1013243":	
+      sheetName="3243-Nicholas";
+      break;
+      
+      case "1012335":	
+      sheetName="2335-Viet";
+      break;
+        
+      case "1014039":	
+      sheetName="4039-Chris";
+      break;
+      
+      case "1014270":
+      sheetName="4270-Tuan";
+      break;
+        
+      case "1014278":
+      sheetName="4278-Alin";
+      break;
+        
+      case "1014305":
+      sheetName="4305-Huu";
+      break;
+     
+      case "1014317":
+      sheetName="4317-Tuan Dat";
+      break;
+        
+      case "1013941":  
+      sheetName="3941-Trung Toan";
+      break;
+      
+      case "1014437":  
+      sheetName="4437-Christian";
+      break;
+        
+      case "1014469":  
+      sheetName="4469-Bishal Ghimire";
+      break; 
+        
+      case "1014629":  
+      sheetName="4629-Cao Hai Vu";
+      break;
+        
+      case "1014628":  
+      sheetName="4628-Baasanjav Dugerjav";
+      break;
+        
+      case "1014527":  
+      sheetName="4527-Gurvinder Singh";
+      break;
+        
+      case "1014616":  
+      sheetName="4616-Prem";
+      break; 
+        
+      case "1014387":  
+      sheetName="4387-Minh";
+      break;
+      
+      case "1014925":  
+      sheetName="4925-Son";
+      break;
+      
+      case "1014634":  
+      sheetName="4634-Yuni";
+      break;
+      
+      case "1014942":  
+      sheetName="4942-Tosa";
+      break;
+      
+      case "1014492":  
+      sheetName="4492-Hoang";
+      break;
+      
+      case "1014902":  
+      sheetName="4902-Mohammed";
+      break;
+        
+      case "1015124":  
+      sheetName="5124-Joy";
+      break;
+      
+      case "1014870":  
+      sheetName="4870-Viet";
+      break;
+      
+      case "1012536":  
+      sheetName="2536-Carl";
+      break;
+      
+      case "1012794":  
+      sheetName="2794-Jack";
+      break;
+        
+      case "1015231":  
+      sheetName="5231-Chi Bao";
+      break;
+        
+      case "1015248":  
+      sheetName="5248-George";
+      break;
+        
+      case "1015250":  
+      sheetName="5250-Lkhagvaa";
+      break;
+        
+      case "1015249":  
+      sheetName="5249-Kiki";
+      break;
+      
+      case "1015316":  
+      sheetName="5316-Iderbat";
+      break;
+      
+      case "1015315":  
+      sheetName="5315-Behzad";
+      break;
+        
+      case "1015314":  
+      sheetName="5314-Quoc Cuong Pham";
+      break;
+
+      case "1015313":  
+      sheetName="5313-Tuan Anh Le";
+      break;
+        
+      case "1015495":
+      sheetName ="5495-Bob";
+      break;  
+        
+      case "1015683":
+      sheetName = "5683-Manh Linh Do";
+      break;
+
+      case "1015752":
+      sheetName = "5752-Ankhaa";
+      break;
+
+      case "1015755":
+      sheetName = "5755-Galkhuu";
+      break;
+
+      case "1015759":
+      sheetName = "5759-Brandon";
+      break;
+
+      case "1015790":
+      sheetName = "5790-Anton";
+      break;
+
+      case "1015796":
+      sheetName = "5796-Enkhtuvshin";
+      break;
+
+      case "1015800":
+      sheetName = "5800-Michael";
+      break;
+
+      case "1015688":
+      sheetName = "5688-Dorance";
+      break;
+
+      case "1015933":
+      sheetName = "5933-Tuan Kiet";
+      break;
+
+      case "1015878":
+      sheetName = "5878-Richard";
+      break;
+
+      case "1015990":
+      sheetName = "5990-Firmansyah";
+      break;
+
+      case "1016054":
+      sheetName = "6054-Jack";
+      break;
+    
+      case "1016126":
+      sheetName = "6126-Leo";
+      break;
+
+      case "1016172":
+      sheetName = "6172-Khoa Vu";
+      break;
+
+      case "1016204":
+      sheetName = "6204-raendy";
+      break;
+      
+      case "1016265":
+      sheetName = "6265-IVANE";
+      break;
+
+      case "1016266":
+      sheetName = "6266-Ryan";
+      break;
+
+      case "1012004":
+      sheetName = "2004-Truong Nguyen";
+      break;
+
+      case "1016373":
+      sheetName = "6373-Trung Phan";
+      break;
+
+      case "1016413":
+      sheetName = "6413-Huỵnh Tran ( Henry )";
+      break;
+
+      case "1016416":
+      sheetName = "6416-Alex";
+      break;
+
+      case "1015145":
+      sheetName = "5145-Trung Duc Ha";
+      break;
+
+      case "1012885":
+      sheetName = "2885-Ngoc Long Hoang";
+      break;
+
+      case "1016751":
+      sheetName = "1016751-Kostia";
+      break;
+
+      case "1016833":
+      sheetName = "6833-Dong";
+      break;
+
+      case "1012660":
+      sheetName ="2660-Jesse";
+      break;
+
+      case "1016977":
+      sheetName ="6977-Roman";
+      break;
+
+      case "1016828":
+      sheetName ="6828-Alex";
+      break;
+
+      case "1013623":
+      sheetName ="3623-Dennis";
+      break;
+
+      case "1017096":
+      sheetName ="7096-Simon";
+      break;
+
+      case "1012770":
+      sheetName ="2770-Nikolas";
+      break;
+
+      case "1017815":
+      sheetName ="7815-kien mai";
+      break;
+
+      case "1017954":
+      sheetName ="7954-Sy Ly Duong";
+      break;
+
+      case "1018019":
+      sheetName ="8019-Enkhtaivan";
+      break;
+
+      case "1018027":
+      sheetName ="8027-Tam Nguyen";
+      break;
+
+      case "1018280":
+      sheetName ="8280-Jair stick";
+      break;
+
+      case "1018325":
+      sheetName ="8325-Dang";
+      break;
+
+      case "1018401":
+      sheetName ="8401-Byambaa";
+      break;
+
+      case "1018471":
+      sheetName ="8471-Tuan Thanh";
+      break;
+
+      case "1018683":
+      sheetName ="8683-Troung Phuc Nguyen";
+      break;
+
+      case "1018656":
+      sheetName ="8656-Tuan linh nguyen";
+      break;
+
+      case "1015450":
+      sheetName ="5450-phi long Vu";
+      break;
+
+      case "1018697":
+      sheetName ="1018697-Hoang Tu Lam";
+      break;
+
+      case "1018785":
+      sheetName ="Hong Hai Nguyen-1018785";
+      break;
+
+      case "1018953":
+      sheetName ="Thanh Phuc Nguyen-8953";
+      break;
+
+      case "1018961":
+      sheetName ="8961-Mursal Javed";
+      break;
+
+      case "1018999":
+      sheetName ="8999-Enkherdene";
+      break;
+
+      case "1018989":
+      sheetName ="8989-Thanh hai truong";
+      break;
+
+      case "1019012":
+      sheetName ="9012-axel";
+      break;
+
+      case "1019023":
+      sheetName ="Namuun-9023";
+      break;
+
+      case "1018954":
+      sheetName ="8954-badam";
+      break;
+
+      case "1019096":
+      sheetName = "9096-Thanh kieu le";
+      break;
+
+      case "1019135":
+      sheetName = "9135-Munkhbayar";
+      break;
+
+      case "1019130":
+      sheetName = "9130-Jorys Perret-Rey";
+      break;
+
+      case "1019140":
+      sheetName = "9140-Muhammad Zain waleed";
+      break;
+
+      case "1019273":
+      sheetName = "9273-Nhat anh dao";
+      break;
+
+      case "1019303":
+      sheetName = "9303-Christopher Jean Michel mercier";
+      break;
+
+      case "1019267":
+      sheetName = "9267-Huy loc nguyen";
+      break;
+
+      case "1019279":
+      sheetName = "9279-Odbayar Mendbayar";
+      break;
+
+      case "1019367":
+      sheetName = "Kholid makhdum ibrahim-9367";
+      break;
+
+      case "1019543":
+      sheetName = "Thanh Luan-9543";
+      break;
+
+      case "1019631":
+      sheetName = "Suwahdji-1019631";
+      break;
+
+      case "1019528":
+      sheetName = "Phuoc hong tran-1019528";
+      break;
+
+      case "1019400":
+      sheetName = "Jason-1019400";
+      break;
+
+      case "1016795":
+      sheetName = "Hai Long-1016795";
+      break;
+
+      case "1015252":
+      sheetName = "1015252-Xuyen";
+      break;
+
+      case "1019808":
+      sheetName = "1019808-Waqaniko";
+      break;
+
+      case "1019831":
+      sheetName = "1019831-Andreas";
+      break;
+
+      default:
+      sheetName = "Unknown Driver";
+      break;
+      
+    }
+    var app = SpreadsheetApp.openById('1jz5gWljx_e7baLKxX1dIiUo0vhTFlxvQvdGActSGE2E');
+    var driverSheet = app.getSheetByName(sheetName);
+    var lRow = driverSheet.getLastRow();
+    if (lRow == 1)
+    {
+      driverSheet.getRange(lRow+1,1).setValue(DriverName);
+      driverSheet.getRange(lRow+1,2).setValue(Scannerlogged);
+      driverSheet.getRange(lRow+1,3).setValue(ScannerCompleted);
+      driverSheet.getRange(lRow+1,4).setValue(Store);
+      driverSheet.getRange(lRow+1,5).setValue(Rego);
+      driverSheet.getRange(lRow+1,6).setValue(ShiftDate);
+      driverSheet.getRange(lRow+1,7).setValue(AMorPM);
+      driverSheet.getRange(lRow+1,8).setValue(StartTime);
+      driverSheet.getRange(lRow+1,9).setValue(FinishTime);
+      driverSheet.getRange(lRow+1,10).setValue(TotalWorkingTime);  
+      driverSheet.getRange(lRow+1,11).setValue(RestTaken);
+      driverSheet.getRange(lRow+1,12).setValue(Reststart);
+      driverSheet.getRange(lRow+1,13).setValue(Restfinish);
+      driverSheet.getRange(lRow+1,14).setValue(MustRest);
+      driverSheet.getRange(lRow+1,15).setValue(RestTakenOnTime);
+      driverSheet.getRange(lRow+1,16).setValue(1);
+    }
+    else if (lRow>1)
+    {
+      var prevShiftDate = driverSheet.getRange(lRow,6).getValue();
+      var p_year = prevShiftDate.substring(6,10);
+      var p_month = prevShiftDate.substring(3,5);
+      var p_day = prevShiftDate.substring(0,2);
+      var p_Date = new Date(p_year, p_month-1, p_day);    
+      var t1 = vshiftDate.getTime();
+      var t2 = p_Date.getTime();
+      var diffInDays = Math.floor((t1-t2)/(24*3600*1000));
+      var conseqWorkDays=1;
+      if (diffInDays == 1)
+      {
+        conseqWorkDays = driverSheet.getRange(lRow,16).getValue()+1;
+      }
+      else if (diffInDays == 0) {conseqWorkDays = driverSheet.getRange(lRow,16).getValue();}
+      else {conseqWorkDays=1;}
+     
+      driverSheet.getRange(lRow+1,1).setValue(DriverName);
+      driverSheet.getRange(lRow+1,2).setValue(Scannerlogged);
+      driverSheet.getRange(lRow+1,3).setValue(ScannerCompleted);
+      driverSheet.getRange(lRow+1,4).setValue(Store);
+      driverSheet.getRange(lRow+1,5).setValue(Rego);
+      driverSheet.getRange(lRow+1,6).setValue(ShiftDate);
+      driverSheet.getRange(lRow+1,7).setValue(AMorPM);
+      driverSheet.getRange(lRow+1,8).setValue(StartTime);
+      driverSheet.getRange(lRow+1,9).setValue(FinishTime);
+      driverSheet.getRange(lRow+1,10).setValue(TotalWorkingTime);  
+      driverSheet.getRange(lRow+1,11).setValue(RestTaken);
+      driverSheet.getRange(lRow+1,12).setValue(Reststart);
+      driverSheet.getRange(lRow+1,13).setValue(Restfinish);
+      driverSheet.getRange(lRow+1,14).setValue(MustRest);
+      driverSheet.getRange(lRow+1,15).setValue(RestTakenOnTime);
+      driverSheet.getRange(lRow+1,16).setValue(conseqWorkDays);
+    }
+  }
+  catch (e)
+  {
+    Logger.log('Function Name: WriteDriverReport. Error:'+e);
+  }
+  finally
+  {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();  
+  }
+
+}
+
+function checkMustRest()
+{
+  try
+  {
+    SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Timesheet Report").activate();
+     var thisSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+     var lastRow = thisSheet.getLastRow();
+     
+      for (var rowNum=2; rowNum<=lastRow; rowNum++)
+      {
+        var isMustRest = thisSheet.getRange(rowNum, 17).getValue();
+        if (isMustRest == "")
+        {
+          var totalWorked= thisSheet.getRange(rowNum, 12).getValue(); 
+          var rest = thisSheet.getRange(rowNum, 14).getValue();
+          if (totalWorked>=5.01 && rest=="No")
+          {
+            thisSheet.getRange(rowNum, 17).setValue("CHECK");
+          }
+          else 
+          {thisSheet.getRange(rowNum, 17).setValue("OK");}
+        }
+      }
+  }
+  catch (e) {Logger.log('Function Name: checkMustRest. Error:'+e);}
+  finally 
+  {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  }
+}
+
+function WriteTimeSheetReport(TimeSheetDate, DriverName, DriverID, qScannerLogin, qScannerLogout, qStore, Rego, ShiftDate, Shift, ShiftStartTime, ShiftFinishTime,
+                             TotalHours, DriverComments, Rest, RestStartTime, RestFinishTime)
+ {
+   try
+   {
+     SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Timesheet Report").activate();
+     var thisSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+     var lastRow = thisSheet.getLastRow();
+     thisSheet.getRange(lastRow+1, 1).setValue(TimeSheetDate);
+     thisSheet.getRange(lastRow+1, 2).setValue(DriverName);
+     thisSheet.getRange(lastRow+1, 3).setValue(DriverID);
+     thisSheet.getRange(lastRow+1, 4).setValue(qScannerLogin);
+     thisSheet.getRange(lastRow+1, 5).setValue(qScannerLogout);
+     thisSheet.getRange(lastRow+1, 6).setValue(qStore);
+     thisSheet.getRange(lastRow+1, 7).setValue(Rego);
+     thisSheet.getRange(lastRow+1, 8).setValue(ShiftDate);
+     thisSheet.getRange(lastRow+1, 9).setValue(Shift);
+     thisSheet.getRange(lastRow+1, 10).setValue(ShiftStartTime);
+     thisSheet.getRange(lastRow+1, 11).setValue(ShiftFinishTime);
+     thisSheet.getRange(lastRow+1, 12).setValue(TotalHours);
+     thisSheet.getRange(lastRow+1, 13).setValue(DriverComments);
+     thisSheet.getRange(lastRow+1, 14).setValue(Rest);
+     thisSheet.getRange(lastRow+1, 15).setValue(RestStartTime);
+     thisSheet.getRange(lastRow+1, 16).setValue(RestFinishTime);
+     
+     if (Rest == 'Yes' || Rest == 'Yes - single rest')
+       {
+        var sString="";
+        var sNum = 0;
+        sNum = lastRow+1;
+        sString = "=O"+sNum+"-J"+sNum;
+        thisSheet.getRange(lastRow+1, 18).setValue(sString);
+       }
+     else if (Rest == 'No' || Rest == 'Null') {thisSheet.getRange(lastRow+1, 18).setValue('0')}
+     var driverIDcheck="";
+     var sNo=0;
+     sNo = lastRow+1;
+     
+     driverIDcheck = '=IFNA(VLOOKUP(TO_TEXT(C'+sNo+'),DriverIDs!A2:DriverIDs!B100,2,FALSE), "'+'VALUE_NOT_FOUND'+'")';
+     //=IFNA(VLOOKUP(TO_TEXT(C7),DriverIDs!A2:DriverIDs!B105,2,FALSE), "VALUE_NOT_FOUND")
+     thisSheet.getRange(lastRow+1,19).setValue(driverIDcheck);
+     driverIDcheck = "=EQ(B"+sNo+", S"+sNo+")";
+     thisSheet.getRange(lastRow+1,20).setValue(driverIDcheck);
+     var checkString='';
+     checkString='=CONCATENATE(TRIM(H'+sNo+'),"-", TRIM(I'+sNo+'), "-", UPPER(TRIM(F'+sNo+')), "-", TRIM(C'+sNo+'), "-", TEXT(J'+sNo+',"HH:MM"))';
+     thisSheet.getRange(lastRow+1,22).setValue(checkString);
+   }
+   catch (e) {Logger.log(e)}
+   finally {SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();}
+ }
+
+function CopyBufferData()
+{
+  try
+  {
+     SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Buffer Sheet').activate();
+     var thisSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+     var lastRow = thisSheet.getLastRow();
+     var count = 0;
+    
+     for (var rowNum=1; rowNum<=lastRow; rowNum++)
+      { 
+        var store = thisSheet.getRange(rowNum,1).getValue(); //ok
+        
+        var store_check = store.toString().length;
+        if (store_check <= 4) 
+          {
+            if (store == '1800') {store = 'Mascot Customer Fulfilment Centre';}
+            else if (store == '1997') {store = 'ORAN PARK';}
+            else if (store == '1393') {store = 'BROOKVALE CUSTOMER FULFILMENT CNTRE';}
+            else if (store == '1091') {store = 'Eagle Vale';}
+            else if (store == '1336') {store = 'Emerald Hills';}
+            else if (store == '1317') {store = 'Macquarie Fields';}
+            else if (store == '2000') {store = 'Town Hall CC';}
+            else if (store == '8881') {store = 'LIDCOMBE CUSTOMER FULFILMENT CENTRE';}
+            else if (store == '1216') {store = 'MILLER';}
+            else if (store == '8882') {store = 'Caringbah CFC';}
+            else {store = thisSheet.getRange(rowNum,11).getValue().trim();}  //ok 
+            var routeID = thisSheet.getRange(rowNum,3).getValue().trim(); //ok
+            var drops = thisSheet.getRange(rowNum,4).getValue(); //ok
+            var kms = thisSheet.getRange(rowNum, 5).getValue(); //ok
+            var weight = thisSheet.getRange(rowNum, 6).getValue(); //ok
+            
+            var l_StartTime = thisSheet.getRange(rowNum,7).getValue();  //ok
+            var d = new Date(l_StartTime);
+
+            var shiftDate = Utilities.formatDate(d, SpreadsheetApp.getActive().getSpreadsheetTimeZone(), "dd-MM-yyyy");
+            var l_FinishTime = thisSheet.getRange(rowNum,8).getValue();  //ok 
+             
+            var dockNo = thisSheet.getRange(rowNum, 11).getValue().trim();  //ok
+            var l_TotalHours = thisSheet.getRange(rowNum,12).getValue();  //ok
+            
+            var rRego = thisSheet.getRange(rowNum,13).getValue().trim();   //ok 
+            if (rRego =="") {rRego="No_Rego";} 
+            var rDriverID = '';
+            rDriverID = thisSheet.getRange(rowNum,14).getValue().toString();   //ok
+            var rDriverName = thisSheet.getRange(rowNum,15).getValue();  //ok
+            var rDriverMobile = thisSheet.getRange(rowNum,16).getValue().toString();  //ok
+            var ContractorStartTime = thisSheet.getRange(rowNum,17).getValue();
+            var Confirmed = thisSheet.getRange(rowNum,18).getValue();
+            
+            var am_pm='';
+            var shiftTime = d.getHours();
+            if (shiftTime <12) {am_pm = 'AM'} 
+            else {am_pm = 'PM'}
+            
+            var l1=0; 
+            var l5=0; 
+            var l6=0; 
+            var l7=0; 
+            var l9=0;
+            
+            l1 = store.length;        
+            l5 = rRego.length;
+            l6 = rDriverName.length;
+            l7 = rDriverMobile.length;
+            l9 = Confirmed.length;
+            //  var run = [];
+            
+            if (l1>0 && l_StartTime!=0 && l_FinishTime!=0 && l_TotalHours!=0 && l5>0 && rDriverID>0 &&
+                l6>0 && l7>0 && ContractorStartTime!=0 && l9>0)
+            {
+             
+              WriteToConfirmedRun(store, l_StartTime, l_FinishTime, l_TotalHours, rRego, rDriverID, rDriverName, rDriverMobile, ContractorStartTime, Confirmed, routeID, am_pm, drops, kms, weight, dockNo, shiftDate);
+              count++;
+              var msg_txt = 'Downloaded confirmed runs for '+shiftDate+'-' +am_pm+'. Total Count:' +count;
+            }
+          } 
+      }
+    if (count >0) {
+      var subject = 'Informing about download of Alfa-1 Confirmed Runs';
+      MailApp.sendEmail('bxongor@gmail.com', subject, msg_txt);
+      MailApp.sendEmail('temka882@gmail.com', subject, msg_txt);
+    }
+  }
+  catch (e) {Logger.log(e)}
+  finally
+  {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  }
+}
+
+function WriteToConfirmedRun (store, l_StartTime, l_FinishTime, l_TotalHours, rRego, rDriverID, rDriverName, rDriverMobile, ContractorStartTime, Confirmed, routeID, ampm, dropCount, Kms, Weight, dock, shift_Date)
+{
+  try 
+  {
+    var app = SpreadsheetApp.openById('1W3B4taWkDByDAHR53Ee8LoQk_tMMUmpD584OUhhPfzw');
+    var sheetConfirmedRuns = app.getSheetByName('Confirmed Runs');
+    var lastRow = sheetConfirmedRuns.getLastRow();
+
+    var now = new Date();
+    sheetConfirmedRuns.getRange(lastRow+1, 1).setValue('Alfa-1');
+    sheetConfirmedRuns.getRange(lastRow+1, 2).setValue(now);
+    sheetConfirmedRuns.getRange(lastRow+1, 3).setValue(store);
+    sheetConfirmedRuns.getRange(lastRow+1, 4).setValue(dock);
+    
+    sheetConfirmedRuns.getRange(lastRow+1, 5).setValue(shift_Date);
+    sheetConfirmedRuns.getRange(lastRow+1, 6).setValue(l_StartTime);
+    sheetConfirmedRuns.getRange(lastRow+1, 7).setValue(l_FinishTime);
+    sheetConfirmedRuns.getRange(lastRow+1, 8).setValue(l_TotalHours);
+    sheetConfirmedRuns.getRange(lastRow+1, 9).setValue(rRego);
+    sheetConfirmedRuns.getRange(lastRow+1, 10).setValue(rDriverID);
+    sheetConfirmedRuns.getRange(lastRow+1, 11).setValue(rDriverName);
+    sheetConfirmedRuns.getRange(lastRow+1, 12).setValue(rDriverMobile);
+    sheetConfirmedRuns.getRange(lastRow+1, 13).setValue(ContractorStartTime);
+    sheetConfirmedRuns.getRange(lastRow+1, 14).setValue(Confirmed);
+    sheetConfirmedRuns.getRange(lastRow+1, 15).setValue(ampm);
+    sheetConfirmedRuns.getRange(lastRow+1, 16).setValue(dropCount);
+    sheetConfirmedRuns.getRange(lastRow+1, 17).setValue(Kms);
+    sheetConfirmedRuns.getRange(lastRow+1, 18).setValue(Weight);
+    sheetConfirmedRuns.getRange(lastRow+1, 19).setValue(routeID);
+    sheetConfirmedRuns.getRange(lastRow+1, 20).setValue('=CONCATENATE(TRIM(TEXT(F'+(lastRow+1)+',"DD-MM-YYYY")), "-'+ampm+'-",UPPER(TRIM(C'+(lastRow+1)+')),'+'"-"'+', TRIM(J'+(lastRow+1)+'),"-", TEXT(F'+(lastRow+1)+',"HH:MM"))');
+    sheetConfirmedRuns.getRange(lastRow+1, 21).setValue('=HOUR(H'+(lastRow+1)+')+MINUTE(H'+(lastRow+1)+')/60');
+    sheetConfirmedRuns.getRange(lastRow+1, 22).setValue('DOWNLOADED FROM LINFOX');
+  }
+  catch (e) {Logger.log(e)}
+  finally 
+  { 
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet(); 
+  }
+}
+
+function EmailConfirmedRuns()
+{
+  try
+  {
+  }
+  catch (e)
+  {
+    Logger.log(e);
+  }
+  finally
+  {
+    
+  }
+}
+
+function CopyTimesheetsToJointReport()
+{
+  try
+  {
+    SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Timesheet Report').activate();
+    var thisSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var lastRow = thisSheet.getLastRow();
+    for (var rowNum=1; rowNum<=lastRow; rowNum++)
+    {
+      var isCountedToDriverReport = thisSheet.getRange(rowNum, 21).getValue();
+      if (isCountedToDriverReport === 'COUNTED')
+      {
+        var tsSubmissionDateTime = thisSheet.getRange(rowNum, 1).getValue();
+        var DriverName = thisSheet.getRange(rowNum, 2).getValue();
+        var DriverID = thisSheet.getRange(rowNum, 3).getValue();
+        var Store = thisSheet.getRange(rowNum, 6).getValue();
+        var Rego = thisSheet.getRange(rowNum, 7).getValue();
+        var ShiftDate = thisSheet.getRange(rowNum, 8).getValue();
+        var amPM = thisSheet.getRange(rowNum, 9).getValue();
+        amPM = amPM.trim();
+        var tsStartTime = thisSheet.getRange(rowNum, 10).getValue();
+        var tsFinishTime = thisSheet.getRange(rowNum, 11).getValue();
+        var tsTotalHours = thisSheet.getRange(rowNum, 12).getValue();
+        var checkString = thisSheet.getRange(rowNum, 22).getValue();
+        var checkReturn = WriteTimesheetToJointReport (tsSubmissionDateTime, DriverName, DriverID, Store, Rego, ShiftDate, amPM, tsStartTime, tsFinishTime, tsTotalHours, checkString)
+        if (checkReturn === 'OK' )
+        {
+          thisSheet.getRange(rowNum, 21).setValue('COPIED TO JOINT REPORT')
+        }
+      }
+    } 
+    
+  }
+  catch (e)
+  {
+    Logger.log(e);
+  }
+  finally
+  {
+    
+  }
+}
+
+function WriteTimesheetToJointReport (ts_SubmissionDate, Driver_Name, Driver_ID, StoreName, RegoNo, Shift_Date, AM_PM, ts_StartTime, ts_FinishTime, ts_Totalhours, ts_CheckString)
+{
+  try
+  {
+    var app = SpreadsheetApp.openById('1W3B4taWkDByDAHR53Ee8LoQk_tMMUmpD584OUhhPfzw');
+    var sheetTimesheets = app.getSheetByName('Timesheets');
+    var lastRow = sheetTimesheets.getLastRow();
+
+    var now = new Date();
+    sheetTimesheets.getRange(lastRow+1, 1).setValue('Alfa-1');
+    sheetTimesheets.getRange(lastRow+1, 2).setValue(ts_SubmissionDate);
+    sheetTimesheets.getRange(lastRow+1, 3).setValue(Driver_Name);
+    sheetTimesheets.getRange(lastRow+1, 4).setValue(Driver_ID);
+    sheetTimesheets.getRange(lastRow+1, 5).setValue(StoreName);
+    sheetTimesheets.getRange(lastRow+1, 6).setValue(RegoNo);
+    sheetTimesheets.getRange(lastRow+1, 7).setValue(Shift_Date);
+    sheetTimesheets.getRange(lastRow+1, 8).setValue(AM_PM);
+    sheetTimesheets.getRange(lastRow+1, 9).setValue(ts_StartTime);
+    sheetTimesheets.getRange(lastRow+1, 10).setValue(ts_FinishTime);
+    sheetTimesheets.getRange(lastRow+1, 11).setValue(ts_Totalhours);
+    sheetTimesheets.getRange(lastRow+1, 12).setValue(ts_CheckString);
+    return 'OK'
+  }
+  catch (e)
+  {
+    Logger.log(e);
+    return 'FAIL'
+  }
+  finally
+  {
+    SpreadsheetApp.getActiveSpreadsheet().getActiveSheet(); 
+  }
+}
+
+function getGmailEmails(){
+  if (Session.getActiveUser().getEmail() != "alfa1transnsw@gmail.com"){
+  Browser.msgBox("Please login at Gmail.com");
+  return;
+  }
+  var labelToSearch = GmailApp.getUserLabelByName("Timesheet");
+  //var labelToAssign = GmailApp.getUserLabelByName("Timesheet Processed");
+  var threads = labelToSearch.getThreads(); 
+  
+  for(var i = threads.length - 1; i >=0; i--){
+    var messages = threads[i].getMessages();    
+   
+    for (var j = 0 ; j < messages.length; j++){
+      var message = messages[j];
+      if (message.isUnread())
+      {
+      extractDetails(message);
+      GmailApp.markMessageRead(message);
+      }
+    }
+    //threads[i].removeLabel(labelToSearch);
+   // threads[i].removeLabel(labelInbox)
+   //threads[i].addLabel(labelToAssign);  
+  }
+}
+
+//function extractDetails(message){ 
+//  var dateTime = message.getDate();
+//  var subjectText = message.getSubject();
+//  var senderDetails = message.getFrom();
+//  var bodyContents = message.getPlainBody(); 
+//  SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Timesheet').activate();
+//  var activeSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+//  activeSheet.appendRow(['','', senderDetails, dateTime, subjectText,bodyContents]);
+//}
+
+function extractDetails(message)
+{
+  try
+  {
+  var RunData = {
+    date: "Null",
+    sender: "Null",
+    subject: "Null",
+    body: "Null",
+    DriverName: "Null",
+    DriverID: "Null",
+    DriverEmail: "Null",
+    
+    qScannerLogin: "Null",
+    qScannerReasonNoLogin: "Null",
+    
+    qScannerLogout: "Null",
+    qScannerReasonNoLogout: "Null",
+    
+    qStore: "Null",
+    qclosestStore: "Null",
+    Rego: "Null",
+    Runsheet: "Null",
+    qRunsheetReasonNo: "Null",
+    Shift: "Null",
+    ShiftDate: "Null",
+    ShiftStartTime: "Null",
+    ShiftFinishTime: "Null",
+    TotalHours: "Null",
+    RestTaken: "Null",
+    RestStartTime: "Null",
+    RestFinishTime: "Null",
+    NotListedRego: "Null",
+    TruckType: "Null"
+  }
+
+  var emailKeywords = {
+    kwDriverName: "Driver's Name",
+    kwDriverID: "7 DIGIT Driver ID",
+    kwDriverEmail: "Driver's Email:",
+    
+    kwqScannerLogin: "Did you log in with a scanner?",
+    kwqScannerReasonNoLogin: "Reason for not logging in with scanner:",
+    
+    kwqScannerLogout: "Did you complete your run with a scanner?",
+    kwqScannerReasonNoLogout: "Reason for not completing run with scanner:",
+        
+    kwqStore: "Store",
+    kwclosestStore: "What is the closest store to you?",
+    kwRego: "Rego",
+    kwRunsheet: "Did you return the run sheet to the store?",
+    kwqRunsheetReasonNo: "Why was the run sheet not returned",
+    kwShift: "Shift",
+    kwShiftDate: "Shift - Date",
+    kwShiftStartTime: "Shift - Start time",
+    kwShiftFinishTime: "Shift - Finish Time",
+    kwTotalHours: "Total Working Time",
+    kwRestTaken: "Rest Taken",
+    kwRestStartTime: "Rest1 - Start Time",
+    kwRestFinishTime: "Rest1 - Finish Time",
+    kwTravelTime: "Store that the shift was allocated to?",
+    kwRegoNOTLISTED: "Rego NOT LISTED",
+    kwTruckType: "Truck Type"
+  }
+  
+  RunData.body = message.getPlainBody();
+  var regExp;
+  regExp = new RegExp("(?<=" + emailKeywords.kwDriverName + ").*");
+  RunData.DriverName = RunData.body.match(regExp).toString().trim();
+  
+  regExp = new RegExp("(?<=" + emailKeywords.kwDriverID + ").*");
+  RunData.DriverID = RunData.body.match(regExp).toString().trim();
+  
+  regExp = new RegExp("(?<=" + emailKeywords.kwDriverEmail + ").*");
+  RunData.DriverEmail = RunData.body.match(regExp).toString().trim();
+  
+  regExp = new RegExp("(?<=" + emailKeywords.kwqScannerLogin + ").*");
+  RunData.qScannerLogin = RunData.body.match(regExp).toString().trim();
+  
+  var l = RunData.qScannerLogin.length;
+  if (RunData.qScannerLogin.indexOf("r?")>-1) {RunData.qScannerLogin = RunData.qScannerLogin.substring(2,l).trim();}
+    
+  if (l == 0) {RunData.qScannerLogin = "NO_DATA";}
+    
+  if (RunData.qScannerLogin == "Yes")
+  {
+    RunData.qScannerReasonNoLogin = "N/A";
+    
+    regExp = new RegExp("(?<=" + emailKeywords.kwqScannerLogout + ").*");
+    RunData.qScannerLogout = RunData.body.match(regExp).toString().trim();
+    
+    if (RunData.qScannerLogout.indexOf("r?")>-1) {RunData.qScannerLogout = RunData.qScannerLogout.substring(2, RunData.qScannerLogout.length).trim();}
+    
+    if (RunData.qScannerLogout.length == 0) {RunData.qScannerLogout = "NO_DATA";}
+    
+    if (RunData.qScannerLogout == 'No')
+    {
+     regExp = new RegExp("(?<=" + emailKeywords.kwqScannerReasonNoLogout + ").*");
+     RunData.qScannerReasonNoLogout = RunData.body.match(regExp).toString().trim();
+    }
+    else {RunData.qScannerReasonNoLogout = 'N/A';}
+  }
+   
+  if (RunData.qScannerLogin == 'No')
+    {
+     regExp = new RegExp("(?<=" + emailKeywords.kwqScannerReasonNoLogin + ").*");
+     RunData.qScannerReasonNoLogin = RunData.body.match(regExp).toString().trim();//qScannerReasonNoLogin
+     RunData.qScannerLogout = 'No';
+     RunData.qScannerReasonNoLogout = 'Scanner Not Used';
+    }
+
+  regExp = new RegExp("(?<=" + emailKeywords.kwqStore + ").*");
+  RunData.qStore = RunData.body.match(regExp).toString().trim();
+  
+  if (RunData.qStore == 'TRUCK SERVICES')
+    {
+     regExp = new RegExp("(?<=" + emailKeywords.kwclosestStore + ").*");
+     RunData.qclosestStore = RunData.body.match(regExp).toString().trim();
+     if (RunData.qclosestStore.indexOf("r?")>-1) {RunData.qclosestStore = RunData.qclosestStore.substring(2,RunData.qclosestStore.length).trim();}
+     RunData.qStore = RunData.qStore + '-'+RunData.qclosestStore; 
+    }
+  
+  if (RunData.qStore == 'TRAVEL TIME')
+    {
+     regExp = new RegExp("(?<=" + emailKeywords.kwTravelTime + ").*");
+     RunData.qclosestStore = RunData.body.match(regExp).toString().trim();
+     if (RunData.qclosestStore.indexOf("r?")>-1) {RunData.qclosestStore = RunData.qclosestStore.substring(2,RunData.qclosestStore.length).trim();}
+     RunData.qStore = RunData.qStore + '-'+RunData.qclosestStore; 
+    }   
+    
+  regExp = new RegExp("(?<=" + emailKeywords.kwRego + ").*");
+  RunData.Rego = RunData.body.match(regExp).toString().trim();
+  
+  if (RunData.Rego == 'Not Listed')
+    {
+     regExp = new RegExp("(?<=" + emailKeywords.kwRegoNOTLISTED + ").*");
+     RunData.NotListedRego = RunData.body.match(regExp).toString().trim();
+      
+     regExp = new RegExp("(?<=" + emailKeywords.kwTruckType + ").*"); 
+     RunData.TruckType = RunData.body.match(regExp).toString().trim();
+     
+     RunData.Rego = RunData.Rego + ' - ' + RunData.NotListedRego + ' - ' + RunData.TruckType;
+    }
+  
+  regExp = new RegExp("(?<=" + emailKeywords.kwRunsheet + ").*");
+  RunData.Runsheet = RunData.body.match(regExp).toString().trim();
+  if (RunData.Runsheet.indexOf("e?")>-1) {RunData.Runsheet = RunData.Runsheet.substring(2,RunData.Runsheet.length).trim();}
+  if (RunData.Runsheet.length == 0) {RunData.Runsheet = 'N/A';}
+
+
+  if (RunData.Runsheet == 'No')
+    {
+     regExp = new RegExp("(?<=" + emailKeywords.kwqRunsheetReasonNo + ").*");
+     RunData.qRunsheetReasonNo = RunData.body.match(regExp).toString().trim(); 
+    }    
+  
+  regExp = new RegExp("(?<=" + emailKeywords.kwShift + ").*");
+  RunData.Shift = RunData.body.match(regExp).toString().trim();
+  
+  regExp = new RegExp("(?<=" + emailKeywords.kwShiftDate + ").*");
+  RunData.ShiftDate = RunData.body.match(regExp).toString().trim();
+  
+  regExp = new RegExp("(?<=" + emailKeywords.kwShiftStartTime + ").*");
+  RunData.ShiftStartTime = RunData.body.match(regExp).toString().trim();
+  
+  regExp = new RegExp("(?<=" + emailKeywords.kwShiftFinishTime + ").*");
+  RunData.ShiftFinishTime = RunData.body.match(regExp).toString().trim();
+  
+  regExp = new RegExp("(?<=" + emailKeywords.kwTotalHours + ").*");
+  RunData.TotalHours = RunData.body.match(regExp).toString().trim();
+
+  regExp = new RegExp("(?<=" + emailKeywords.kwRestTaken + ").*");
+  RunData.RestTaken = RunData.body.match(regExp).toString().trim();
+  if (RunData.RestTaken == 'Yes - single rest') {RunData.RestTaken='Yes';}
+  if (RunData.RestTaken != 'No')
+    {
+     regExp = new RegExp("(?<=" + emailKeywords.kwRestStartTime + ").*");
+     RunData.RestStartTime = RunData.body.match(regExp).toString().trim();
+  
+     regExp = new RegExp("(?<=" + emailKeywords.kwRestFinishTime + ").*");
+     RunData.RestFinishTime = RunData.body.match(regExp).toString().trim();
+    }
+  else if (RunData.RestTaken == 'No')
+    {
+      RunData.RestStartTime="";
+      RunData.RestFinishTime = " ";
+      
+    }
+  
+  var dateTime = message.getDate();
+  //var subjectText = message.getSubject();
+  //var senderDetails = message.getFrom();
+  var bodyContents = message.getPlainBody(); 
+  var str = "Shift - Comments";
+  var l = str.length;
+  var DriverComments = bodyContents.substring(bodyContents.indexOf("Shift - Comments")+l, bodyContents.indexOf("Rest Taken")-1);
+  
+  //SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Timesheet').activate();
+  //var activeSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  //activeSheet.appendRow(['','', senderDetails, dateTime, subjectText, bodyContents]);
+  WriteTimeSheetReport(dateTime, RunData.DriverName, RunData.DriverID, RunData.qScannerLogin, RunData.qScannerLogout, RunData.qStore, RunData.Rego,
+                       RunData.ShiftDate,  RunData.Shift, RunData.ShiftStartTime, RunData.ShiftFinishTime, RunData.TotalHours, DriverComments, RunData.RestTaken,
+                       RunData.RestStartTime, RunData.RestFinishTime)
+//}
+  
+  }
+  
+  catch (e)
+  {
+    Logger.log("Problem with extraction of email details: "+e);
+  }
+  finally
+  {
+    Logger.log("Extract Email details completed successfully"); 
+  }
+
+}
+
+function backup()
+{
+  try
+  {
+    var currentDate = new Date();
+    SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Timesheet Report").activate();
+    var thisSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    
+    var appBackup = SpreadsheetApp.openById('1ZRT4IE-f91IO-awyVjj_5o1Q2zZlyRhDlvUV6P7vdLw');
+    var TimeSheetsBackup = appBackup.getSheetByName('Timesheet Report');
+
+
+    for (var rowNum=50; rowNum >=2; rowNum--)
+    {
+      var status = thisSheet.getRange(rowNum, 21).getValue().trim();
+      var shiftDateString = thisSheet.getRange(rowNum, 8).getValue();
+      var shiftDate = new Date(shiftDateString.substring(3,5)+'/'+shiftDateString.substring(0,3)+'/'+shiftDateString.substring(6,shiftDateString.length));
+      var sec=1000;
+      var min=60*sec;
+      var hour=60*min;
+      var day=24*hour;
+      var diff=currentDate-shiftDate;
+      var days=Math.floor(diff/day);
+      
+      if ((status == 'COPIED TO JOINT REPORT' || status == 'ADMIN APPROVED') && (days>=2))
+      {
+        var rangeToCopy = thisSheet.getRange(rowNum, 1, 1, 23).getValues();
+        var lastRow = TimeSheetsBackup.getLastRow();
+        var writeToRow = TimeSheetsBackup.getRange(lastRow+1, 1, 1, 23).setValues(rangeToCopy);
+        thisSheet.deleteRow(rowNum);
+      }
+    }     
+  }
+  catch (e)
+  {
+    Logger.log(e);
+  }
+  finally
+  {
+    Logger.log('Backup from 2days to 2weeks completed successfully');
+   // SendEmailtoAdmin()
+  }
+}
